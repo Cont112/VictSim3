@@ -48,10 +48,10 @@ if __name__ == '__main__':
     print("--- INICIO SMA ---")
     print("------------------")
     # dataset com sinais vitais das vitimas
-    vict_folder = os.path.join("..", "datasets/vict/", "10v")
+    vict_folder = os.path.join("..", "datasets/vict/", "408v")
 
     # dataset do ambiente (paredes, posicao das vitimas)
-    env_folder = os.path.join("..", "datasets/env/", "12x12_10v")
+    env_folder = os.path.join("..", "datasets/env/", "94x94_408v")
 
     # folder das configuracoes dos agentes
     curr = os.getcwd()

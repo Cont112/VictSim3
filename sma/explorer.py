@@ -45,8 +45,6 @@ class Explorer(AbstAgent):
         self.map = Map()           # create a map for representing the environment
         self.victims = {}          # a dictionary of found victims: (seq): ((x,y), [<vs>])
                                    # the key is a seq number of the victim,(x,y) the position, <vs> the list of vital signals
-        self.classifier = load('classifier.joblib')  # load the pre-trained classifier
-        self.cluster_data = []
         self.untried = {}          # dictionary of untried actions: (x,y) -> [actions_id] 
         self.returning_to_base = False
         self.action_order = action_order
@@ -175,8 +173,6 @@ class Explorer(AbstAgent):
 
         if self.returning_to_base:
             if (self.x == 0 and self.y == 0):
-                self.classifier_victims()
-                self.cluster_victms()
                 # time to wake up the rescuer
                 # pass the walls and the victims (here, they're empty)
                 print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the orchestrator rescuer")
@@ -188,49 +184,3 @@ class Explorer(AbstAgent):
         
         self.explore()
         return True
-    
-    def classifier_victims(self):
-        """ Classify the found victims using the pre-trained classifier
-            and print the results.
-        """
-        for seq, ((position),victm) in self.victims.items():
-            # Prepare the feature vector for classification
-            features = victm[1:11]
-            colunas = [
-                "idade","fc","fr","pas","spo2","temp","pr","sg","fx","queim"
-            ]
-            df = pd.DataFrame([features], columns=colunas)
-            # Predict the class using the loaded classifier
-            prediction = self.classifier.predict(df)
-            distance  = sqrt(position[0]**2 + position[1]**2)
-            self.cluster_data.append([distance, prediction[0], position, seq])
-
-    def cluster_victms(self):
-        """ Cluster the victims based on distance and predicted severity using KMeans.
-            Print the cluster centers and labels.
-        """
-        if not self.cluster_data:
-            print("No victim data to cluster.")
-            return
-        cluster_features = [[data[0], data[1]] for data in self.cluster_data]
-        print(f"cluster features: {cluster_features}")
-        kmeans = KMeans(n_clusters=3, random_state=0)
-        labels = kmeans.fit(cluster_features).labels_
-        
-        cluster_df = pd.DataFrame([
-            {
-                "id_vict": data[3],         # seq (identificador)
-                "x": data[2][0],            # posição x
-                "y": data[2][1],            # posição y
-                "tri": int(data[1]),        # classe predita (gravidade)
-                "cluster": int(label)
-            }
-            for data, label in zip(self.cluster_data, labels)
-        ])
-
-        # Salva cada cluster separadamente
-        for c in sorted(cluster_df["cluster"].unique()):
-            df_cluster = cluster_df[cluster_df["cluster"] == c][["id_vict", "x", "y", "tri"]]
-            nome_arquivo = f"cluster{c+1}.txt"
-            df_cluster.to_csv(nome_arquivo, index=False)
-

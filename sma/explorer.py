@@ -25,7 +25,7 @@ class Stack:
         return len(self.items) == 0
 
 class Explorer(AbstAgent):
-    def __init__(self, env, config_file, resc):
+    def __init__(self, env, config_file, resc, action_order):
         """ Construtor do agente random on-line
         @param env: a reference to the environment 
         @param config_file: the absolute path to the explorer's config file
@@ -43,7 +43,7 @@ class Explorer(AbstAgent):
                                    # the key is a seq number of the victim,(x,y) the position, <vs> the list of vital signals
         self.untried = {}          # dictionary of untried actions: (x,y) -> [actions_id] 
         self.returning_to_base = False
-        
+        self.action_order = action_order
         #add possible actions from the starting position to untried
         self.untried[(self.x,self.y)] = self.get_possible_actions()
 
@@ -56,8 +56,13 @@ class Explorer(AbstAgent):
         for i, s in enumerate(obstacles_start):
             if s == VS.CLEAR:
                 possible_actions.append(i)
-        random.shuffle(possible_actions)
-        return possible_actions
+
+        sorted_possible_actions = []
+        for preferred_action in self.action_order:
+            if preferred_action in possible_actions:
+                sorted_possible_actions.append(preferred_action)
+        sorted_possible_actions.reverse()
+        return sorted_possible_actions
 
     def explore(self):
         # Online-DFS
@@ -93,7 +98,6 @@ class Explorer(AbstAgent):
             # puts the visited position in a stack. When the batt is low, 
             # the explorer unstack each visited position to come back to the base
             self.walk_stack.push((dx, dy))
-
             # update the agent's position relative to the origin of 
             # the coordinate system used by the agents
             self.x += dx

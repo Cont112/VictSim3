@@ -9,6 +9,10 @@ import random
 from vs.abstract_agent import AbstAgent
 from vs.constants import VS
 from map import Map
+from joblib import load
+import pandas as pd
+from math import sqrt
+from sklearn.cluster import KMeans
 
 class Stack:
     def __init__(self):
@@ -41,6 +45,8 @@ class Explorer(AbstAgent):
         self.map = Map()           # create a map for representing the environment
         self.victims = {}          # a dictionary of found victims: (seq): ((x,y), [<vs>])
                                    # the key is a seq number of the victim,(x,y) the position, <vs> the list of vital signals
+        self.classifier = load('classifier.joblib')  # load the pre-trained classifier
+        self.cluster_data = []
 
         # put the current position - the base - in the map
         self.map.add((self.x, self.y), 1, VS.NO_VICTIM, self.check_walls_and_lim())
@@ -92,6 +98,7 @@ class Explorer(AbstAgent):
             if seq != VS.NO_VICTIM:
                 vs = self.read_vital_signals()
                 self.victims[seq] = ((self.x, self.y), vs)
+                print(f"Vitima encontrada. Sinais: {vs}\n")
                 #print(f"{self.NAME} Victim found at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
                 #print(f"{self.NAME} Seq: {seq} Vital signals: {vs}")
             
@@ -128,6 +135,8 @@ class Explorer(AbstAgent):
             self.x += dx
             self.y += dy
             #print(f"{self.NAME}: coming back at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
+
+
         
     def deliberate(self) -> bool:
         """  The simulator calls this method at each cycle. 
@@ -147,6 +156,8 @@ class Explorer(AbstAgent):
         if self.walk_stack.is_empty() or (self.x == 0 and self.y == 0):
             # time to wake up the rescuer
             # pass the walls and the victims (here, they're empty)
+            self.classifier_victims()
+            self.cluster_victms()
             print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the rescuer")
             #input(f"{self.NAME}: type [ENTER] to proceed")
             self.resc.go_save_victims(self.map, self.victims)
@@ -155,6 +166,49 @@ class Explorer(AbstAgent):
         # move to the base
         self.come_back()
         return True
+    
+    def classifier_victims(self):
+        """ Classify the found victims using the pre-trained classifier
+            and print the results.
+        """
+        for seq, ((position),victm) in self.victims.items():
+            # Prepare the feature vector for classification
+            features = victm[1:11]
+            colunas = [
+                "idade","fc","fr","pas","spo2","temp","pr","sg","fx","queim"
+            ]
+            df = pd.DataFrame([features], columns=colunas)
+            # Predict the class using the loaded classifier
+            prediction = self.classifier.predict(df)
+            distance  = sqrt(position[0]**2 + position[1]**2)
+            self.cluster_data.append([distance, prediction[0], position, seq])
 
+    def cluster_victms(self):
+        """ Cluster the victims based on distance and predicted severity using KMeans.
+            Print the cluster centers and labels.
+        """
+        if not self.cluster_data:
+            print("No victim data to cluster.")
+            return
+        cluster_features = [[data[0], data[1]] for data in self.cluster_data]
+        print(f"cluster features: {cluster_features}")
+        kmeans = KMeans(n_clusters=3, random_state=0)
+        labels = kmeans.fit(cluster_features).labels_
+        
+        cluster_df = pd.DataFrame([
+            {
+                "id_vict": data[3],         # seq (identificador)
+                "x": data[2][0],            # posição x
+                "y": data[2][1],            # posição y
+                "tri": int(data[1]),        # classe predita (gravidade)
+                "cluster": int(label)
+            }
+            for data, label in zip(self.cluster_data, labels)
+        ])
 
+        # Salva cada cluster separadamente
+        for c in sorted(cluster_df["cluster"].unique()):
+            df_cluster = cluster_df[cluster_df["cluster"] == c][["id_vict", "x", "y", "tri"]]
+            nome_arquivo = f"cluster{c+1}.txt"
+            df_cluster.to_csv(nome_arquivo, index=False)
 

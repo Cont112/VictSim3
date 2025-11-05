@@ -28,7 +28,7 @@ class Map:
             return True
 
         return False
-
+    
     def get(self, coord):
         """ @param coord: a pair (x, y), the key of the dictionary"""
         return self.map_data.get(coord)

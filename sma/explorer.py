@@ -56,7 +56,7 @@ class Explorer(AbstAgent):
         for i, s in enumerate(obstacles_start):
             if s == VS.CLEAR:
                 possible_actions.append(i)
-        possible_actions.reverse()
+        random.shuffle(possible_actions)
         return possible_actions
 
     def explore(self):
@@ -75,8 +75,6 @@ class Explorer(AbstAgent):
 
         action_index = self.untried.get(current_sate).pop()
         dx, dy = Explorer.AC_INCR[action_index]
-        print(f"Action index {action_index}")
-        print(f"dx: {dx} | dy: {dy}")
 
         # Moves the explorer agent to another position
         rtime_bef = self.get_rtime()   ## get remaining batt time before the move
@@ -157,7 +155,6 @@ class Explorer(AbstAgent):
         """
 
         consumed_time = self.TLIM - self.get_rtime()
-        
         # check if it is time to come back to the base      
         # Verifica se é hora de voltar (sua estratégia de "metade do tempo")
         if not self.returning_to_base and (consumed_time >= self.get_rtime()):
@@ -168,9 +165,9 @@ class Explorer(AbstAgent):
             if (self.x == 0 and self.y == 0):
                 # time to wake up the rescuer
                 # pass the walls and the victims (here, they're empty)
-                print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the rescuer")
+                print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the orchestrator rescuer")
                 #input(f"{self.NAME}: type [ENTER] to proceed")
-                self.resc.go_save_victims(self.map, self.victims)
+                self.resc.recv_map_and_victims(self.map, self.victims)
                 return False
             self.come_back()
             return True

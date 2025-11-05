@@ -7,7 +7,7 @@
 
 from vs.abstract_agent import AbstAgent
 from vs.constants import VS
-
+from map import Map
 
 ## Classe que define o Agente Rescuer com um plano fixo
 class Rescuer(AbstAgent):
@@ -30,12 +30,64 @@ class Rescuer(AbstAgent):
         self.x = 0                  # the current x position of the rescuer when executing the plan
         self.y = 0                  # the current y position of the rescuer when executing the plan
 
+        self.num_explorers = 3
+        self.collected_maps = []
+        self.collected_victims = []
+        self.unified_map = Map()
+        self.unified_victims = {}
                 
         # Starts in IDLE state.
         # It changes to ACTIVE when the map arrives
         self.set_state(VS.IDLE)
 
-    
+    def recv_map_and_victims(self, map, victims):
+        """ The main rescuer collects all the maps from the 
+        explorers and calls the function to unify them"""
+
+        print(f"{self.NAME}: Receiving data from explorer...")
+        self.collected_maps.append(map)
+        self.collected_victims.append(victims)
+
+        if len(self.collected_maps) == self.num_explorers:
+            print(f"{self.NAME}: All {self.num_explorers} explorer reported. Commencing unification.")
+            self.__unify_and_start_rescue()
+
+    def __unify_and_start_rescue(self):
+        for map_obj in self.collected_maps:
+            self.unified_map.map_data.update(map_obj.map_data)
+
+        for victims_dict in self.collected_victims:
+            self.unified_victims.update(victims_dict)
+
+        self.map = self.unified_map # O agente agora usa o mapa unificado
+        self.victims = self.unified_victims
+
+        self.map.draw()
+
+        # print the found victims - you may comment out
+        for seq, data in self.victims.items():
+            coord, vital_signals = data
+            x, y = coord
+            print(f"{self.NAME} Victim {seq} at ({x}, {y}) vs: {vital_signals}")
+
+        self.__planner()
+
+        # 4. EXECUTAR CLUSTERING E ATRIBUIÇÃO
+
+        print(f"{self.NAME} PLAN")
+        i = 1
+        self.plan_x = 0
+        self.plan_y = 0
+        for a in self.plan:
+            self.plan_x += a[0]
+            self.plan_y += a[1]
+            print(f"{self.NAME} {i}) dxy=({a[0]}, {a[1]}) vic: a[2] => at({self.plan_x}, {self.plan_y})")
+            i += 1
+
+        print(f"{self.NAME} END OF PLAN")
+                  
+        self.set_state(VS.ACTIVE)
+
     def go_save_victims(self, map, victims):
         """ The explorer sends the map containing the walls and
         victims' location. The rescuer becomes ACTIVE. From now,

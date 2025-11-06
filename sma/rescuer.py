@@ -13,6 +13,8 @@ from joblib import load
 import pandas as pd
 from math import sqrt
 from sklearn.cluster import KMeans
+import os
+import matplotlib.pyplot as plt
 
 ## Classe que define o Agente Rescuer com um plano fixo
 class Rescuer(AbstAgent):
@@ -47,10 +49,11 @@ class Rescuer(AbstAgent):
         # Starts in IDLE state.
         # It changes to ACTIVE when the map arrives
         self.set_state(VS.IDLE)
-
+    
     def recv_map_and_victims(self, map, victims):
         """ The main rescuer collects all the maps from the 
-        explorers and calls the function to unify them"""
+        explorers and calls the function to unify them. Only the main
+        rescuer call this method"""
 
         print(f"{self.NAME}: Receiving data from explorer...")
         self.collected_maps.append(map)
@@ -61,6 +64,7 @@ class Rescuer(AbstAgent):
             self.__unify_and_start_rescue()
 
     def __unify_and_start_rescue(self):
+        """Unify maps, clustering victims and create the other rescuers"""
         for map_obj in self.collected_maps:
             self.unified_map.map_data.update(map_obj.map_data)
 
@@ -78,25 +82,12 @@ class Rescuer(AbstAgent):
             x, y = coord
             print(f"{self.NAME} Victim {seq} at ({x}, {y}) vs: {vital_signals}")
 
-        self.__planner()
 
         # 4.EXECUTAR CLUSTERING E ATRIBUIÇÃO
         self.classifier_victims()
-        self.cluster_victms()
-
-        print(f"{self.NAME} PLAN")
-        i = 1
-        self.plan_x = 0
-        self.plan_y = 0
-        for a in self.plan:
-            self.plan_x += a[0]
-            self.plan_y += a[1]
-            print(f"{self.NAME} {i}) dxy=({a[0]}, {a[1]}) vic: a[2] => at({self.plan_x}, {self.plan_y})")
-            i += 1
-
-        print(f"{self.NAME} END OF PLAN")
+        c1, c2, c3 = self.cluster_victms()
+        self._create_and_coordinate_rescuers([c1, c2, c3])
                   
-        self.set_state(VS.ACTIVE)
 
     def go_save_victims(self, map, victims):
         """ The explorer sends the map containing the walls and
@@ -242,8 +233,7 @@ class Rescuer(AbstAgent):
             come_back_plan.append((a[0]*-1, a[1]*-1, False))
 
         self.plan = self.plan + come_back_plan
-        
-        
+           
     def deliberate(self) -> bool:
         """ This is the choice of the next action. The simulator calls this
         method at each reasonning cycle if the agent is ACTIVE.
@@ -309,6 +299,27 @@ class Rescuer(AbstAgent):
         print(f"cluster features: {cluster_features}")
         kmeans = KMeans(n_clusters=3, random_state=0)
         labels = kmeans.fit(cluster_features).labels_
+
+        x = [f[0] for f in cluster_features]  # distância
+        y = [f[1] for f in cluster_features]  # tri
+
+        # Criar figura
+        plt.figure(figsize=(8, 6))
+
+        # Plotar pontos (cada cor = cluster)
+        plt.scatter(x, y, c=labels, s=60, alpha=0.8, edgecolors='black')
+
+        # Personalização dos eixos
+        plt.title("Clusters de Vítimas (Distância vs Tri)")
+        plt.xlabel("Distância")
+        plt.ylabel("Tri (gravidade 0 a 3)")
+        plt.yticks([0, 1, 2, 3])
+        plt.grid(True, linestyle='--', linewidth=0.5)
+        plt.legend()
+        plt.tight_layout()
+
+        # Mostrar o gráfico
+        plt.show()
         
         cluster_df = pd.DataFrame([
             {
@@ -326,3 +337,49 @@ class Rescuer(AbstAgent):
             df_cluster = cluster_df[cluster_df["cluster"] == c][["id_vict", "x", "y", "tri"]]
             nome_arquivo = f"cluster{c+1}.txt"
             df_cluster.to_csv(nome_arquivo, index=False)
+        
+        cluster_1 = cluster_df[cluster_df["cluster"] == 0]
+        cluster_2 = cluster_df[cluster_df["cluster"] == 1]
+        cluster_3 = cluster_df[cluster_df["cluster"] == 2]
+
+        return cluster_1, cluster_2, cluster_3
+
+    def _create_and_coordinate_rescuers(self, clusters):
+        """Creates and coordinates other rescuers, distributing clusters among them."""
+        # Create 2 additional rescuers
+        rescuers = [self]
+        #create other rescuers
+        for i in range(1,3):
+            curr = os.getcwd()
+            config_ag_folder = os.path.join(curr, "config_ag_1")
+            rescuer_file = os.path.join(config_ag_folder, f"rescuer_{i+1}.txt")
+
+            new_rescuer = Rescuer(self.get_env(), rescuer_file)
+            new_rescuer.map = self.map
+            rescuers.append(new_rescuer)
+            print(f"{self.NAME}: Created rescuer {new_rescuer.NAME}")
+
+        # Distribute clusters to other rescuers
+        victms_copy = self.victims.copy()
+        for i, rescuer in enumerate(rescuers):
+            if i < len(clusters):  # +1 because master takes first cluster
+                cluster = clusters[i]
+                # Share necessary information with the rescuer
+                rescuer.victims = {
+                    id_victm: victms_copy[id_victm]
+                    for id_victm in cluster["id_vict"].tolist()
+                    if id_victm in victms_copy
+                }
+                print(f"{rescuer.NAME}: Assigned cluster {i} to {rescuer.NAME}")
+
+
+        for rescuer in rescuers:
+            
+            rescuer.__planner()
+            rescuer.set_state(VS.ACTIVE)
+
+            print(f"{rescuer.NAME} PLAN")
+            for victm in rescuer.victims.items():
+                print(f"{rescuer.NAME} Victim to rescue: {victm}")
+
+            print(f"{rescuer.NAME} END OF PLAN")

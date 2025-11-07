@@ -13,6 +13,7 @@ from joblib import load
 import pandas as pd
 from math import sqrt
 from sklearn.cluster import KMeans
+import heapq
 
 class Stack:
     def __init__(self):
@@ -48,6 +49,7 @@ class Explorer(AbstAgent):
         self.untried = {}          # dictionary of untried actions: (x,y) -> [actions_id] 
         self.returning_to_base = False
         self.action_order = action_order
+        self.a_star_path = []     
         #add possible actions from the starting position to untried
         self.untried[(self.x,self.y)] = self.get_possible_actions()
 
@@ -134,15 +136,14 @@ class Explorer(AbstAgent):
         return
 
     def come_back(self):
-        """ Procedure to return to the base: pops the walk_stack to follow
-        the exploration path in the opposite direction """
-  
-        if self.walk_stack.is_empty():
+        """ Procedure to return to the base using A* calculated path """
+        
+        if not self.a_star_path:
             return
 
-        dx, dy = self.walk_stack.pop()
-        dx = dx * -1
-        dy = dy * -1
+        next_pos = self.a_star_path.pop(0)
+        dx = next_pos[0] - self.x
+        dy = next_pos[1] - self.y
 
         result = self.walk(dx, dy)
         # Walk resulted in bumping into a wall or end of grid
@@ -150,7 +151,6 @@ class Explorer(AbstAgent):
             print(f"{self.NAME}: when coming back bumped at ({self.x+dx}, {self.y+dy}) , rtime: {self.get_rtime()}")
             return
             
-        # Walk succeded
         if result == VS.EXECUTED:
             # update the agent's position relative to the origin
             self.x += dx
@@ -164,17 +164,26 @@ class Explorer(AbstAgent):
         Must be implemented in every agent. The agent chooses the next action.
         """
 
-        consumed_time = self.TLIM - self.get_rtime()
-        # check if it is time to come back to the base      
-        # Verifica se é hora de voltar (sua estratégia de "metade do tempo")
-        if not self.returning_to_base and (consumed_time >= self.get_rtime()):
-            self.returning_to_base = True
-            print(f"{self.NAME}: Returning to base.")
+        # Only calculate A* path cost when still exploring
+        if not self.returning_to_base:
+            path_info = self.a_star()
+            
+            if path_info:
+                path, cost = path_info
+                safety_margin = cost * 1.08
+                
+                if self.get_rtime() <= safety_margin:
+                    self.returning_to_base = True
+                    self.a_star_path = path
+                    print(f"{self.NAME}: Returning to base. A* cost: {cost:.2f}, with margin: {safety_margin:.2f}, rtime: {self.get_rtime():.2f}")
+            else:
+                consumed_time = self.TLIM - self.get_rtime()
+                if consumed_time >= self.get_rtime():
+                    self.returning_to_base = True
+                    print(f"{self.NAME}: Returning to base (no A* path found).")
 
         if self.returning_to_base:
             if (self.x == 0 and self.y == 0):
-                # time to wake up the rescuer
-                # pass the walls and the victims (here, they're empty)
                 print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the orchestrator rescuer")
                 #input(f"{self.NAME}: type [ENTER] to proceed")
                 self.resc.recv_map_and_victims(self.map, self.victims)
@@ -184,3 +193,63 @@ class Explorer(AbstAgent):
         
         self.explore()
         return True
+    
+    def a_star(self):
+        """ A* pathfinding to return to base
+        @returns: tuple (path, cost) where:
+                  - path is a list of (x,y) coordinates from current position to base (excluding current pos)
+                  - cost is the total battery cost to traverse the path
+                  Returns None if no path is found
+        """
+        start = (self.x, self.y)
+        goal = (0, 0)
+        
+        if start == goal:
+            return ([], 0)
+        
+        counter = 0
+        heap = [(0, counter, start, [], 0)]
+        counter += 1
+        
+        best_g_score = {start: 0}
+        
+        while heap:
+            f_score, _, current, path, g_score = heapq.heappop(heap)
+            
+            if current == goal:
+                return (path, g_score)
+            
+            if current in best_g_score and g_score > best_g_score[current]:
+                continue
+            
+            for action_idx in range(8):
+                dx, dy = Explorer.AC_INCR[action_idx]
+                neighbor = (current[0] + dx, current[1] + dy)
+                
+                if not self.map.in_map(neighbor):
+                    continue
+                
+                neighbor_data = self.map.get(neighbor)
+                difficulty = neighbor_data[0]
+                
+                if difficulty == VS.OBST_WALL:
+                    continue
+                
+                if dx == 0 or dy == 0:
+                    move_cost = self.COST_LINE * difficulty
+                else:
+                    move_cost = self.COST_DIAG * difficulty
+                
+                new_g_score = g_score + move_cost
+                
+                if neighbor not in best_g_score or new_g_score < best_g_score[neighbor]:
+                    best_g_score[neighbor] = new_g_score
+                    
+                    h_score = (abs(neighbor[0] - goal[0]) + abs(neighbor[1] - goal[1])) * self.COST_LINE
+                    
+                    new_f_score = new_g_score + h_score
+                    
+                    new_path = path + [neighbor]
+                    heapq.heappush(heap, (new_f_score, counter, neighbor, new_path, new_g_score))
+                    counter += 1
+        return None

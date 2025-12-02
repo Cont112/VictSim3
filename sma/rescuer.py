@@ -383,3 +383,66 @@ class Rescuer(AbstAgent):
                 print(f"{rescuer.NAME} Victim to rescue: {victm}")
 
             print(f"{rescuer.NAME} END OF PLAN")
+
+    def genetic_algorithm(self):
+
+        #parameters to genetic algorithm
+        POPULATION_SIZE = 100
+        NUM_GENERATIONS = 1500
+        TOURNAMENT_SIZE = 50
+        MUTATION_RATE = 0.1
+        CROSSOVER_RATE = 0.8
+
+        best_sequence = []
+        best_fitness = 0
+
+        victims = self.victims
+
+        def selection(population, fitness):
+            tournament = random.sample(list(zip(population, fitness)), TOURNAMENT_SIZE)
+            winner = max(tournament, key=lambda item: item[1])
+            return winner[0]
+
+        def crossover (parent1, parent2):
+            if(random.random > CROSSOVER_RATE):
+                    return parent1, parent2
+            size = len(parent1)
+            child1, child2 = [-1]*size, [-1]*size
+            
+
+            #init and final os subsequence of parent1
+            start, end = sorted(random.sample(range(size), 2))
+
+            #mix parent gens
+            child1[start:end+1] = parent1[start:end+1]
+            child2[start:end+1] = parent2[start:end+1]
+
+            for i in range(size):
+                if child1[i] == -1:
+                    child1[i] = parent2[i]
+                if child2[i] == -1:
+                    child2[i] = parent1[i]
+            return child1, child2
+        
+        def mutation(ind):
+            #swap 2 gens
+            if random.random < MUTATION_RATE:
+                gen1, gen2 = random.sample(range(len(ind)), 2)
+                ind[gen1], ind[gen2] = ind[gen2], ind[gen1]
+            return ind
+
+
+
+
+
+        #init population
+        population = []
+        for _ in range(POPULATION_SIZE):
+            new_sequence = random.sample(victims, len(victims))
+            population.append(new_sequence)
+
+
+
+
+
+    

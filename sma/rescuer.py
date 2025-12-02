@@ -15,6 +15,7 @@ from math import sqrt
 from sklearn.cluster import KMeans
 import os
 import matplotlib.pyplot as plt
+import heapq
 
 ## Classe que define o Agente Rescuer com um plano fixo
 class Rescuer(AbstAgent):
@@ -76,7 +77,6 @@ class Rescuer(AbstAgent):
 
         self.map.draw()
 
-        # print the found victims - you may comment out
         for seq, data in self.victims.items():
             coord, vital_signals = data
             x, y = coord
@@ -197,42 +197,53 @@ class Rescuer(AbstAgent):
         return
     
     def __planner(self):
-        """ A private method that calculates the walk actions in a OFF-LINE 
-        MANNER to rescue the victims. Further actions may be necessary and 
-        should be added in the deliberate method"""
+        """
+        Planeja a sequência de resgates baseada na lista de vítimas atribuída (self.victims).
+        """
+        curr_x, curr_y = 0, 0 # Base (assumindo que o agente começa na base relativa 0,0 do seu sistema)
+        
+        current_rtime = self.TLIM
+        
+        # Lista para salvar as vítimas salvas efetivamente para o arquivo de saída
+        self.victims_saved_sequence = [] 
 
-        """This plan starts at the origin (0, 0) and selects the first possible action
-        in a clockwise manner, starting from the 12 o’clock position.
-        If the next position was visited by the explorer, the rescuer moves there;
-        otherwise, it selects the next possible action in a clockwise manner.
-        For each planned action, the agent calculates the time that will be consumed.
-        When it is time to return to the base, the plan is reversed."""
+        victims_list = []
+        for seq, data in self.victims.items():
+            pos = data[0]
+            victims_list.append({'id': seq, 'pos': pos})
+        
+        for vic in victims_list:
+            target_pos = vic['pos']
+            
+            path_to_vict, cost_to_vict = self.a_star((curr_x, curr_y), target_pos, self.map.map_data)
+            
+            if not path_to_vict:
+                continue
+                
+            path_to_base, cost_to_base = self.a_star(target_pos, (0,0), self.map.map_data)
+            
+            if not path_to_base:
+                continue
 
+            total_cost = cost_to_vict + self.COST_FIRST_AID + cost_to_base
+            
+            if total_cost <= current_rtime:
+                for move in path_to_vict:
+                    self.plan.append((move[0], move[1], False))
 
-        # This is an offline trajectory plan. Each element in the list is a pair (dx, dy)
-        # that moves the agent along the x-axis and/or y-axis.
-        # Additionally, each element includes a flag indicating whether a first-aid kit
-        # must be delivered after the move is completed.
-        # For example, (0, 1, True) means the agent moves to (x+0, y+1) and then
-        # delivers a kit because there is a victim at that location.
+                last_move = self.plan.pop()
+                self.plan.append((last_move[0], last_move[1], True))
+                
+                current_rtime -= (cost_to_vict + self.COST_FIRST_AID)
+                curr_x, curr_y = target_pos
+                
+                self.victims_saved_sequence.append(vic)
 
-        # always start from the base, so it is already visited
-        self.plan_visited.add((0,0)) 
-        difficulty, vic_seq, actions_res = self.map.get((0,0))
-        self.__depth_search(actions_res)
-
-        # push actions into the plan to come back to the base
-        if self.plan == []:
-            return
-
-        come_back_plan = []
-
-        for a in reversed(self.plan):
-            # each line of the plan is a triple: dx, dy, no victim 
-            # - when coming back do not rescue any victim
-            come_back_plan.append((a[0]*-1, a[1]*-1, False))
-
-        self.plan = self.plan + come_back_plan
+        path_home, _ = self.a_star((curr_x, curr_y), (0,0), self.map.map_data)
+        if path_home:
+            for move in path_home:
+                self.plan.append((move[0], move[1], False))
+                
            
     def deliberate(self) -> bool:
         """ This is the choice of the next action. The simulator calls this
@@ -383,3 +394,49 @@ class Rescuer(AbstAgent):
                 print(f"{rescuer.NAME} Victim to rescue: {victm}")
 
             print(f"{rescuer.NAME} END OF PLAN")
+
+    def a_star(self, start, goal, map):
+        """ returns the tuple [path, cost]"""
+        
+        open_set = []
+        #Heap: (f_score, g_score, pos, path)
+        heapq.heappush(open_set, (0, 0, start, []))
+
+        visited = set()
+        g_scores = {start: 0}
+
+        while open_set:
+            f_score, g_score, current, path = heapq.heappop(open_set)
+
+            if current == goal:
+                return path, g_score
+
+            if current in visited:
+                continue
+
+            visited.add(current)
+
+            for action_idx in range (8):
+                dx, dy = Rescuer.AC_INCR[action_idx]
+                neighbour = (current[0] + dx, current[1] + dy)
+
+                data = map.get(neighbour)
+
+                if not data: continue
+                diff = data[0]
+                if diff == VS.OBST_WALL: continue
+
+                move_cost = self.COST_LINE if (dx == 0 or dy == 0) else self.COST_DIAG
+                g1_score = g_score + move_cost * diff
+
+                if neighbour not in g_scores or g1_score < g_scores[neighbour]:
+                    g_scores[neighbour] = g1_score
+                    
+                    h = self.heuristic(neighbour, goal)
+                    f = g1_score + h
+                    new_path = path + [(dx,dy)]
+                    heapq.heappush(open_set, (f, g1_score, neighbour, new_path))
+        return None, float('inf')
+    
+    def heuristic(self, a, b):
+        return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5 * self.COST_LINE

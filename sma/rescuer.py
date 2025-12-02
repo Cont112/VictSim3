@@ -88,7 +88,6 @@ class Rescuer(AbstAgent):
         c1, c2, c3 = self.cluster_victms()
         self._create_and_coordinate_rescuers([c1, c2, c3])
                   
-
     def go_save_victims(self, map, victims):
         """ The explorer sends the map containing the walls and
         victims' location. The rescuer becomes ACTIVE. From now,
@@ -375,6 +374,7 @@ class Rescuer(AbstAgent):
 
         for rescuer in rescuers:
             
+            print(f"Vitimas do rescuer: {self.victims}")
             rescuer.__planner()
             rescuer.set_state(VS.ACTIVE)
 
@@ -384,7 +384,7 @@ class Rescuer(AbstAgent):
 
             print(f"{rescuer.NAME} END OF PLAN")
 
-    def genetic_algorithm(self):
+    def order_victims(self):
 
         #parameters to genetic algorithm
         POPULATION_SIZE = 100
@@ -430,9 +430,9 @@ class Rescuer(AbstAgent):
                 gen1, gen2 = random.sample(range(len(ind)), 2)
                 ind[gen1], ind[gen2] = ind[gen2], ind[gen1]
             return ind
-
-
-
+        
+        def calc_fitness():
+            pass
 
 
         #init population
@@ -440,6 +440,38 @@ class Rescuer(AbstAgent):
         for _ in range(POPULATION_SIZE):
             new_sequence = random.sample(victims, len(victims))
             population.append(new_sequence)
+
+        #evolution
+        fit = []
+        for gen in NUM_GENERATIONS:
+            for ind in population:
+                fit.append(calc_fitness(ind))
+            best_fitness = max(fit)
+            best_sequence = population[fit.index(best_fitness)]
+
+            #next generation
+            new_pop = []
+
+            while len(new_pop) < POPULATION_SIZE:
+                #select parents
+                parent1 = selection(population, fit)
+                parent2 = selection(population, fit)
+
+                #2 childrens crossover and mutation
+                child1 = crossover(parent1, parent2)
+                child2 = crossover(parent1, parent2)
+
+                child1 = mutation(child1)
+                child2 = mutation(child2)
+
+                new_pop.append(child2, child2)
+
+            population = new_pop
+        self.victims = best_sequence
+
+            
+                
+
 
 
 

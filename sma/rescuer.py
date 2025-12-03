@@ -323,22 +323,22 @@ class Rescuer(AbstAgent):
         y = [f[1] for f in cluster_features]  # tri
 
         # Criar figura
-        plt.figure(figsize=(8, 6))
+        # plt.figure(figsize=(8, 6))
 
-        # Plotar pontos (cada cor = cluster)
-        plt.scatter(x, y, c=labels, s=60, alpha=0.8, edgecolors='black')
+        # # Plotar pontos (cada cor = cluster)
+        # plt.scatter(x, y, c=labels, s=60, alpha=0.8, edgecolors='black')
 
-        # Personalização dos eixos
-        plt.title("Clusters de Vítimas (Distância vs Tri)")
-        plt.xlabel("Distância")
-        plt.ylabel("Tri (gravidade 0 a 3)")
-        plt.yticks([0, 1, 2, 3])
-        plt.grid(True, linestyle='--', linewidth=0.5)
-        plt.legend()
-        plt.tight_layout()
+        # # Personalização dos eixos
+        # plt.title("Clusters de Vítimas (Distância vs Tri)")
+        # plt.xlabel("Distância")
+        # plt.ylabel("Tri (gravidade 0 a 3)")
+        # plt.yticks([0, 1, 2, 3])
+        # plt.grid(True, linestyle='--', linewidth=0.5)
+        # plt.legend()
+        # plt.tight_layout()
 
-        # Mostrar o gráfico
-        plt.show()
+        # # Mostrar o gráfico
+        # plt.show()
         
         cluster_df = pd.DataFrame([
             {
@@ -413,14 +413,13 @@ class Rescuer(AbstAgent):
 
             print(f"{rescuer.NAME} END OF PLAN")
 
-
     def order_victims(self):
 
         print(f"{self.NAME} vitimas antes de order: {self.victims}")
         #parameters to genetic algorithm
         POPULATION_SIZE = 100
-        NUM_GENERATIONS = 1500
-        TOURNAMENT_SIZE = 50
+        NUM_GENERATIONS = 1000
+        TOURNAMENT_SIZE = 15
         MUTATION_RATE = 0.1
         CROSSOVER_RATE = 0.8
 
@@ -472,12 +471,14 @@ class Rescuer(AbstAgent):
             #mix parent gens
             child1[start:end+1] = parent1[start:end+1]
             child2[start:end+1] = parent2[start:end+1]
+            p2_genes = [gene for gene in parent2 if gene not in child1]
+            p1_genes = [gene for gene in parent1 if gene not in child2]
 
             for i in range(size):
                 if child1[i] == -1:
-                    child1[i] = parent2[i]
+                    child1[i] = p2_genes.pop(0)
                 if child2[i] == -1:
-                    child2[i] = parent1[i]
+                    child2[i] = p1_genes.pop(0)
             return child1, child2
         
         def mutation(ind):
@@ -500,7 +501,8 @@ class Rescuer(AbstAgent):
                 # Check if we can visit this victim and still return to base in time
                 if time_spent + cost_to_victim + cost_from_victim_to_base + self.COST_FIRST_AID <= self.TLIM:
                     time_spent += cost_to_victim + self.COST_FIRST_AID
-                    total_severity += (self.victims[next_vic_id][1]+1)/cost_to_victim
+                    # total_severity += (self.victims[next_vic_id][1]+1)/cost_to_victim
+                    total_severity += (self.victims[next_vic_id][1]+1)
                     current_id = next_vic_id
                 else:
                     # Not enough time for this victim (and any subsequent ones)
@@ -551,25 +553,6 @@ class Rescuer(AbstAgent):
         
         self.victims = best_sequence
         print(f"{self.NAME} vitimas depois de order: {self.victims}")
-
-        
-
-        # final_plan = []
-        # time_spent = 0
-        # current_id = 'BASE'
-        # for vic_id in best_sequence:
-        #     cost_to_victim = self.cost_matrix[current_id][vic_id]['cost']
-        #     cost_from_victim_to_base = self.cost_matrix[vic_id]['BASE']['cost']
-        #     if time_spent + cost_to_victim + cost_from_victim_to_base <= self.TLIM:
-        #         time_spent += cost_to_victim
-        #         final_plan.extend(self.cost_matrix[current_id][vic_id]['path'])
-        #         current_id = vic_id
-        #     else:
-        #         break
-        # # add the base to the final plan
-        # final_plan.extend(self.cost_matrix[best_sequence[-1]]['BASE']['path'])
-        
-        # self.plan = final_plan
         
 
 

@@ -46,6 +46,7 @@ class Rescuer(AbstAgent):
         self.collected_victims = []
         self.unified_map = Map()
         self.unified_victims = {}
+        self.cost_matrix = {}
                 
         # Starts in IDLE state.
         # It changes to ACTIVE when the map arrives
@@ -207,7 +208,7 @@ class Rescuer(AbstAgent):
         self.victims_saved_sequence = [] 
 
         victims_list = []
-        for seq, data in self.victims.items():
+        for seq, data in self.victims:
             pos = data[0]
             victims_list.append({'id': seq, 'pos': pos})
         
@@ -242,6 +243,14 @@ class Rescuer(AbstAgent):
         if path_home:
             for move in path_home:
                 self.plan.append((move[0], move[1], False))
+
+        filename = f"seq{self.NAME}.txt"  
+        print(f"victims_saved: {self.victims_saved_sequence}")
+        with open(filename, "w") as f:
+            for vic in self.victims_saved_sequence:
+                pos = vic['pos']
+                id = vic['id']
+                f.write(f"{id},{pos[0]},{pos[1]}\n")
                 
            
     def deliberate(self) -> bool:
@@ -348,9 +357,9 @@ class Rescuer(AbstAgent):
             nome_arquivo = f"cluster{c+1}.txt"
             df_cluster.to_csv(nome_arquivo, index=False)
         
-        cluster_1 = cluster_df[cluster_df["cluster"] == 0]
-        cluster_2 = cluster_df[cluster_df["cluster"] == 1]
-        cluster_3 = cluster_df[cluster_df["cluster"] == 2]
+        cluster_1 = cluster_df[cluster_df["cluster"] == 0][["id_vict", "x", "y", "tri"]]
+        cluster_2 = cluster_df[cluster_df["cluster"] == 1][["id_vict", "x", "y", "tri"]]
+        cluster_3 = cluster_df[cluster_df["cluster"] == 2][["id_vict", "x", "y", "tri"]]
 
         return cluster_1, cluster_2, cluster_3
 
@@ -374,29 +383,40 @@ class Rescuer(AbstAgent):
         for i, rescuer in enumerate(rescuers):
             if i < len(clusters):  # +1 because master takes first cluster
                 cluster = clusters[i]
+                print(f"cluster recebido: {cluster}")
                 # Share necessary information with the rescuer
+                tri_map = dict(zip(cluster["id_vict"], cluster["tri"]))
+
+                vict_ids = cluster["id_vict"].tolist()
+                unique_ids = set(vict_ids)
+
                 rescuer.victims = {
-                    id_victm: victms_copy[id_victm]
-                    for id_victm in cluster["id_vict"].tolist()
-                    if id_victm in victms_copy
+                    vid: (victms_copy[vid][0], tri_map[vid])
+                    for vid in unique_ids
+                    if vid in victms_copy
                 }
-                print(f"{rescuer.NAME}: Assigned cluster {i} to {rescuer.NAME}")
+                
+
+                
 
 
         for rescuer in rescuers:
             
-            print(f"Vitimas do rescuer: {self.victims}")
+            print(f"Vitimas do rescuer: {rescuer.victims}")
+            rescuer.order_victims()
             rescuer.__planner()
             rescuer.set_state(VS.ACTIVE)
 
             print(f"{rescuer.NAME} PLAN")
-            for victm in rescuer.victims.items():
+            for victm in rescuer.victims:
                 print(f"{rescuer.NAME} Victim to rescue: {victm}")
 
             print(f"{rescuer.NAME} END OF PLAN")
 
+
     def order_victims(self):
 
+        print(f"{self.NAME} vitimas antes de order: {self.victims}")
         #parameters to genetic algorithm
         POPULATION_SIZE = 100
         NUM_GENERATIONS = 1500
@@ -408,6 +428,31 @@ class Rescuer(AbstAgent):
         best_fitness = 0
 
         victims = self.victims
+        
+        def compute_costs_between_victims(self):
+            cost_matrix = {}
+            points_of_interest = {'BASE': (0, 0)}
+            for seq, data in victims.items():
+                points_of_interest[seq] = data[0]
+
+            # Generate all unique pairs of points
+            for vic_id1, pos1 in points_of_interest.items():
+                for vic_id2, pos2 in points_of_interest.items():
+                    if vic_id1 == vic_id2:
+                        continue
+                    if vic_id1 not in cost_matrix:
+                        cost_matrix[vic_id1] = {}
+                    if vic_id2 not in cost_matrix:
+                        cost_matrix[vic_id2] = {}
+
+                    if vic_id1 in cost_matrix[vic_id2]:
+                        continue
+                    
+                    path, cost = self.a_star((pos1[0], pos1[1]), pos2, self.map.map_data)
+                    cost_matrix[vic_id1][vic_id2] = {'cost': cost, 'path': path}
+                    cost_matrix[vic_id2][vic_id1] = {'cost': cost, 'path': path[::-1]}
+
+            return cost_matrix
 
         def selection(population, fitness):
             tournament = random.sample(list(zip(population, fitness)), TOURNAMENT_SIZE)
@@ -415,7 +460,7 @@ class Rescuer(AbstAgent):
             return winner[0]
 
         def crossover (parent1, parent2):
-            if(random.random > CROSSOVER_RATE):
+            if(random.random() > CROSSOVER_RATE):
                     return parent1, parent2
             size = len(parent1)
             child1, child2 = [-1]*size, [-1]*size
@@ -437,28 +482,53 @@ class Rescuer(AbstAgent):
         
         def mutation(ind):
             #swap 2 gens
-            if random.random < MUTATION_RATE:
+            if random.random() < MUTATION_RATE:
                 gen1, gen2 = random.sample(range(len(ind)), 2)
                 ind[gen1], ind[gen2] = ind[gen2], ind[gen1]
             return ind
         
-        def calc_fitness():
-            pass
+        def calc_fitness(sequence):
+            
+            time_spent = 0
+            total_severity = 0
+            current_id = 'BASE'
+
+            for next_vic_id, data in sequence:
+                cost_to_victim = self.cost_matrix.get(current_id, {}).get(next_vic_id, {}).get('cost', float('inf'))
+                cost_from_victim_to_base = self.cost_matrix.get(next_vic_id, {}).get('BASE', {}).get('cost', float('inf'))
+
+                # Check if we can visit this victim and still return to base in time
+                if time_spent + cost_to_victim + cost_from_victim_to_base + self.COST_FIRST_AID <= self.TLIM:
+                    time_spent += cost_to_victim + self.COST_FIRST_AID
+                    total_severity += (self.victims[next_vic_id][1]+1)/cost_to_victim
+                    current_id = next_vic_id
+                else:
+                    # Not enough time for this victim (and any subsequent ones)
+                    break
+            
+            return total_severity
+
 
 
         #init population
         population = []
         for _ in range(POPULATION_SIZE):
-            new_sequence = random.sample(victims, len(victims))
+            new_sequence = random.sample(victims.items(), len(victims))
             population.append(new_sequence)
+
+        #calc matrix cost 
+        self.cost_matrix = compute_costs_between_victims(self)
 
         #evolution
         fit = []
-        for gen in NUM_GENERATIONS:
-            for ind in population:
-                fit.append(calc_fitness(ind))
-            best_fitness = max(fit)
-            best_sequence = population[fit.index(best_fitness)]
+        for gen in range(NUM_GENERATIONS):
+
+            fit = [calc_fitness(ind) for ind in population]
+            curr_best_fitness = max(fit)
+
+            if(curr_best_fitness > best_fitness):
+                best_fitness = curr_best_fitness
+                best_sequence = population[fit.index(curr_best_fitness)]
 
             #next generation
             new_pop = []
@@ -469,21 +539,38 @@ class Rescuer(AbstAgent):
                 parent2 = selection(population, fit)
 
                 #2 childrens crossover and mutation
-                child1 = crossover(parent1, parent2)
-                child2 = crossover(parent1, parent2)
+                child1, child2 = crossover(parent1, parent2)
 
                 child1 = mutation(child1)
                 child2 = mutation(child2)
 
-                new_pop.append(child2, child2)
+                new_pop.append(child1)
+                new_pop.append(child2)
 
             population = new_pop
+        
         self.victims = best_sequence
+        print(f"{self.NAME} vitimas depois de order: {self.victims}")
 
-            
-                
+        
 
-
+        # final_plan = []
+        # time_spent = 0
+        # current_id = 'BASE'
+        # for vic_id in best_sequence:
+        #     cost_to_victim = self.cost_matrix[current_id][vic_id]['cost']
+        #     cost_from_victim_to_base = self.cost_matrix[vic_id]['BASE']['cost']
+        #     if time_spent + cost_to_victim + cost_from_victim_to_base <= self.TLIM:
+        #         time_spent += cost_to_victim
+        #         final_plan.extend(self.cost_matrix[current_id][vic_id]['path'])
+        #         current_id = vic_id
+        #     else:
+        #         break
+        # # add the base to the final plan
+        # final_plan.extend(self.cost_matrix[best_sequence[-1]]['BASE']['path'])
+        
+        # self.plan = final_plan
+        
 
 
 

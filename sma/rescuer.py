@@ -77,15 +77,8 @@ class Rescuer(AbstAgent):
         self.map = self.unified_map # O agente agora usa o mapa unificado
         self.victims = self.unified_victims
 
-        self.map.draw()
+        #self.map.draw()
 
-        for seq, data in self.victims.items():
-            coord, vital_signals = data
-            x, y = coord
-            print(f"{self.NAME} Victim {seq} at ({x}, {y}) vs: {vital_signals}")
-
-
-        # 4.EXECUTAR CLUSTERING E ATRIBUIÇÃO
         self.classifier_victims()
         c1, c2, c3 = self.cluster_victms()
         self._create_and_coordinate_rescuers([c1, c2, c3])
@@ -105,103 +98,33 @@ class Rescuer(AbstAgent):
         self.victims = victims
 
         # print the found victims - you may comment out
-        for seq, data in self.victims.items():
-            coord, vital_signals = data
-            x, y = coord
-            print(f"{self.NAME} Victim {seq} at ({x}, {y}) vs: {vital_signals}")
+        # for seq, data in self.victims.items():
+        #     coord, vital_signals = data
+        #     x, y = coord
+        #     print(f"{self.NAME} Victim {seq} at ({x}, {y}) vs: {vital_signals}")
 
         #print(f"{self.NAME} time limit to rescue {self.plan_rtime}")
 
         self.__planner()
-        print(f"{self.NAME} PLAN")
-        i = 1
-        self.plan_x = 0
-        self.plan_y = 0
-        for a in self.plan:
-            self.plan_x += a[0]
-            self.plan_y += a[1]
-            print(f"{self.NAME} {i}) dxy=({a[0]}, {a[1]}) vic: a[2] => at({self.plan_x}, {self.plan_y})")
-            i += 1
+        # print(f"{self.NAME} PLAN")
+        # i = 1
+        # self.plan_x = 0
+        # self.plan_y = 0
+        # for a in self.plan:
+        #     self.plan_x += a[0]
+        #     self.plan_y += a[1]
+        #     #print(f"{self.NAME} {i}) dxy=({a[0]}, {a[1]}) vic: a[2] => at({self.plan_x}, {self.plan_y})")
+        #     i += 1
 
-        print(f"{self.NAME} END OF PLAN")
+        #print(f"{self.NAME} END OF PLAN")
                   
         self.set_state(VS.ACTIVE)
-        
-    def __depth_search(self, actions_res):
-        enough_time = True
-        ##print(f"\n{self.NAME} actions results: {actions_res}")
-        for i, ar in enumerate(actions_res):
-
-            if ar != VS.CLEAR:
-                ##print(f"{self.NAME} {i} not clear")
-                continue
-
-            # planning the walk
-            dx, dy = Rescuer.AC_INCR[i]  # get the increments for the possible action
-            target_xy = (self.plan_x + dx, self.plan_y + dy)
-
-            # checks if the explorer has not visited the target position
-            if not self.map.in_map(target_xy):
-                ##print(f"{self.NAME} target position not explored: {target_xy}")
-                continue
-
-            # checks if the target position is already planned to be visited 
-            if (target_xy in self.plan_visited):
-                ##print(f"{self.NAME} target position already visited: {target_xy}")
-                continue
-
-            # Now, the rescuer can plan to walk to the target position
-            self.plan_x += dx
-            self.plan_y += dy
-            difficulty, vic_seq, next_actions_res = self.map.get((self.plan_x, self.plan_y))
-            #print(f"{self.NAME}: planning to go to ({self.plan_x}, {self.plan_y})")
-
-            if dx == 0 or dy == 0:
-                step_cost = self.COST_LINE * difficulty
-            else:
-                step_cost = self.COST_DIAG * difficulty
-
-            #print(f"{self.NAME}: difficulty {difficulty}, step cost {step_cost}")
-            #print(f"{self.NAME}: accumulated walk time {self.plan_walk_time}, rtime {self.plan_rtime}")
-
-            # check if there is enough remaining time to walk back to the base
-            if self.plan_walk_time + step_cost > self.plan_rtime:
-                enough_time = False
-                #print(f"{self.NAME}: no enough time to go to ({self.plan_x}, {self.plan_y})")
-            
-            if enough_time:
-                # the rescuer has time to go to the next position: update walk time and remaining time
-                self.plan_walk_time += step_cost
-                self.plan_rtime -= step_cost
-                self.plan_visited.add((self.plan_x, self.plan_y))
-
-                if vic_seq == VS.NO_VICTIM:
-                    self.plan.append((dx, dy, False)) # walk only
-                    #print(f"{self.NAME}: added to the plan, walk to ({self.plan_x}, {self.plan_y}, False)")
-
-                if vic_seq != VS.NO_VICTIM:
-                    # checks if there is enough remaining time to rescue the victim and come back to the base
-                    if self.plan_rtime - self.COST_FIRST_AID < self.plan_walk_time:
-                        print(f"{self.NAME}: no enough time to rescue the victim")
-                        enough_time = False
-                    else:
-                        self.plan.append((dx, dy, True))
-                        #print(f"{self.NAME}:added to the plan, walk to and rescue victim({self.plan_x}, {self.plan_y}, True)")
-                        self.plan_rtime -= self.COST_FIRST_AID
-
-            # let's see what the agent can do in the next position
-            if enough_time:
-                self.__depth_search(self.map.get((self.plan_x, self.plan_y))[2]) # actions results
-            else:
-                return
-
-        return
-    
+ 
     def __planner(self):
         """
         Planeja a sequência de resgates baseada na lista de vítimas atribuída (self.victims).
         """
-        curr_x, curr_y = 0, 0 # Base (assumindo que o agente começa na base relativa 0,0 do seu sistema)
+        curr_x, curr_y = 0, 0
         
         current_rtime = self.TLIM
         
@@ -245,8 +168,7 @@ class Rescuer(AbstAgent):
             for move in path_home:
                 self.plan.append((move[0], move[1], False))
 
-        filename = f"seq{self.NAME}.txt"  
-        print(f"victims_saved: {self.victims_saved_sequence}")
+        filename = f"output/seq{self.NAME}.txt"  
         with open(filename, "w") as f:
             for vic in self.victims_saved_sequence:
                 pos = vic['pos']
@@ -277,18 +199,8 @@ class Rescuer(AbstAgent):
         if walked == VS.EXECUTED:
             self.x += dx
             self.y += dy
-            #print(f"{self.NAME} Walk ok - Rescuer at position ({self.x}, {self.y})")
-            # check if there is a victim at the current position
             if there_is_vict:
                 rescued = self.first_aid() # True when rescued
-                if rescued:
-                    print(f"{self.NAME} Victim rescued at ({self.x}, {self.y})")
-                else:
-                    print(f"{self.NAME} Plan fail - victim not found at ({self.x}, {self.x})")
-        else:
-            print(f"{self.NAME} Plan fail - walk error - agent at ({self.x}, {self.x})")
-            
-        #input(f"{self.NAME} remaining time: {self.get_rtime()} Tecle enter")
 
         return True
 
@@ -316,7 +228,7 @@ class Rescuer(AbstAgent):
             print("No victim data to cluster.")
             return
         cluster_features = [[data[0], data[1]] for data in self.cluster_data]
-        print(f"cluster features: {cluster_features}")
+        #print(f"cluster features: {cluster_features}")
         kmeans = KMeans(n_clusters=3, random_state=0)
         labels = kmeans.fit(cluster_features).labels_
 
@@ -355,7 +267,7 @@ class Rescuer(AbstAgent):
         # Salva cada cluster separadamente
         for c in sorted(cluster_df["cluster"].unique()):
             df_cluster = cluster_df[cluster_df["cluster"] == c][["id_vict", "x", "y", "tri"]]
-            nome_arquivo = f"cluster{c+1}.txt"
+            nome_arquivo = f"output/cluster{c+1}.txt"
             df_cluster.to_csv(nome_arquivo, index=False)
         
         cluster_1 = cluster_df[cluster_df["cluster"] == 0][["id_vict", "x", "y", "tri"]]
@@ -368,7 +280,6 @@ class Rescuer(AbstAgent):
         """Creates and coordinates other rescuers, distributing clusters among them."""
         # Create 2 additional rescuers
         rescuers = [self]
-        #create other rescuers
         for i in range(1,3):
             curr = os.getcwd()
             config_ag_folder = os.path.join(curr, "config_ag_1")
@@ -384,7 +295,7 @@ class Rescuer(AbstAgent):
         for i, rescuer in enumerate(rescuers):
             if i < len(clusters):  # +1 because master takes first cluster
                 cluster = clusters[i]
-                print(f"cluster recebido: {cluster}")
+                #print(f"cluster recebido: {cluster}")
                 # Share necessary information with the rescuer
                 tri_map = dict(zip(cluster["id_vict"], cluster["tri"]))
 
@@ -402,21 +313,11 @@ class Rescuer(AbstAgent):
 
 
         for rescuer in rescuers:
-            
-            print(f"Vitimas do rescuer: {rescuer.victims}")
             rescuer.order_victims()
             rescuer.__planner()
             rescuer.set_state(VS.ACTIVE)
 
-            print(f"{rescuer.NAME} PLAN")
-            for victm in rescuer.victims:
-                print(f"{rescuer.NAME} Victim to rescue: {victm}")
-
-            print(f"{rescuer.NAME} END OF PLAN")
-
     def order_victims(self):
-
-        print(f"{self.NAME} vitimas antes de order: {self.victims}")
         #parameters to genetic algorithm
         POPULATION_SIZE = 100
         NUM_GENERATIONS = 1000
@@ -506,7 +407,6 @@ class Rescuer(AbstAgent):
                     total_severity += (self.victims[next_vic_id][1]+1)
                     current_id = next_vic_id
                 else:
-                    # Not enough time for this victim (and any subsequent ones)
                     break
             
             return total_severity
@@ -553,13 +453,7 @@ class Rescuer(AbstAgent):
             population = new_pop
         
         self.victims = best_sequence
-        print(f"{self.NAME} vitimas depois de order: {self.victims}")
-        
 
-
-
-
-    
     def a_star(self, start, goal, map):
         """ returns the tuple [path, cost]"""
         

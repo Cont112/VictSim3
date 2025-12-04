@@ -30,7 +30,7 @@ class Stack:
         return len(self.items) == 0
 
 class Explorer(AbstAgent):
-    def __init__(self, env, config_file, resc, action_order):
+    def __init__(self, env, config_file, resc, target_pos=(0,0)):
         """ Construtor do agente random on-line
         @param env: a reference to the environment 
         @param config_file: the absolute path to the explorer's config file
@@ -38,6 +38,8 @@ class Explorer(AbstAgent):
         """
 
         super().__init__(env, config_file)
+        self.target_pos = target_pos
+
         self.walk_stack = Stack()  # a stack to store the movements
         self.set_state(VS.ACTIVE)  # explorer is active since the begin
         self.resc = resc           # reference to the rescuer agent
@@ -48,10 +50,11 @@ class Explorer(AbstAgent):
                                    # the key is a seq number of the victim,(x,y) the position, <vs> the list of vital signals
         self.untried = {}          # dictionary of untried actions: (x,y) -> [actions_id] 
         self.returning_to_base = False
-        self.action_order = action_order
         self.a_star_path = []     
         #add possible actions from the starting position to untried
         self.untried[(self.x,self.y)] = self.get_possible_actions()
+
+        self.obst_min = env.get_obst_min()
 
         # put the current position - the base - in the map
         self.map.add((self.x, self.y), 1, VS.NO_VICTIM, self.check_walls_and_lim())
@@ -61,101 +64,101 @@ class Explorer(AbstAgent):
         possible_actions = []
         for i, s in enumerate(obstacles_start):
             if s == VS.CLEAR:
-                possible_actions.append(i)
+                dx, dy = Explorer.AC_INCR[i]
+                target_pos = (self.x + dx, self.y + dy)
+                
+                if not self.map.in_map(target_pos):
+                    dist_sq = (target_pos[0] - self.target_pos[0])**2 + (target_pos[1] - self.target_pos[1])**2
+                    possible_actions.append((i, dist_sq))
 
-        sorted_possible_actions = []
-        for preferred_action in self.action_order:
-            if preferred_action in possible_actions:
-                sorted_possible_actions.append(preferred_action)
-        sorted_possible_actions.reverse()
-        return sorted_possible_actions
+        possible_actions.sort(key=lambda x: x[1], reverse=True)
+
+        actions = [item[0] for item in possible_actions]
+        
+        return actions
 
     def explore(self):
         # Online-DFS
+        current_state = (self.x, self.y)
 
-        current_sate = (self.x, self.y)
+        if current_state not in self.untried:
+            self.untried[current_state] = self.get_possible_actions()
 
-        if not self.untried.get(current_sate):
-            #beco sem saida
-            if self.walk_stack.is_empty():
-                #chegou na base
-                self.returning_to_base = True
+        while self.untried.get(current_state):
+            action_idx = self.untried[current_state].pop()
+            
+            dx, dy = Explorer.AC_INCR[action_idx]
+            target_pos = (self.x + dx, self.y + dy)
+
+            if self.map.in_map(target_pos):
+                continue
+            
+            rtime_bef = self.get_rtime()
+            result = self.walk(dx, dy)
+            rtime_aft = self.get_rtime()
+
+            if result == VS.BUMPED:
+                self.map.add((self.x + dx, self.y + dy), VS.OBST_WALL, VS.NO_VICTIM, self.check_walls_and_lim())
+                continue 
+
+            if result == VS.EXECUTED:
+                self.walk_stack.push((dx, dy))
+                self.x += dx
+                self.y += dy          
+
+                next_state = (self.x, self.y)
+                
+                if next_state not in self.untried:
+                    self.untried[next_state] = self.get_possible_actions()
+
+                    seq = self.check_for_victim()
+                    if seq != VS.NO_VICTIM:
+                        vs = self.read_vital_signals()
+                        self.victims[seq] = ((self.x, self.y), vs)
+                
+                    difficulty = (rtime_bef - rtime_aft)
+                    if dx == 0 or dy == 0:
+                        difficulty = difficulty / self.COST_LINE
+                    else:
+                        difficulty = difficulty / self.COST_DIAG
+
+                    self.map.add((self.x, self.y), difficulty, seq, self.check_walls_and_lim())
+
                 return
-            self.come_back()
+
+        if self.walk_stack.is_empty():
+            self.returning_to_base = True
             return
 
-        action_index = self.untried.get(current_sate).pop()
-        dx, dy = Explorer.AC_INCR[action_index]
-
-        # Moves the explorer agent to another position
-        rtime_bef = self.get_rtime()   ## get remaining batt time before the move
-        result = self.walk(dx, dy)
-        rtime_aft = self.get_rtime()   ## get remaining batt time after the move
-
-        # Test the result of the walk action
-        # It should never bump, since get_next_position always returns a valid position...
-        # but for safety, let's test it anyway
-        if result == VS.BUMPED:
-            # update the map with the wall
-            self.map.add((self.x + dx, self.y + dy), VS.OBST_WALL, VS.NO_VICTIM, self.check_walls_and_lim())
-            #print(f"{self.NAME}: Wall or grid limit reached at ({self.x + dx}, {self.y + dy})")
-
-        if result == VS.EXECUTED:
-            # puts the visited position in a stack. When the batt is low, 
-            # the explorer unstack each visited position to come back to the base
-            self.walk_stack.push((dx, dy))
-            # update the agent's position relative to the origin of 
-            # the coordinate system used by the agents
-            self.x += dx
-            self.y += dy          
-
-            next_state = (self.x, self.y)
-
-            if next_state not in self.untried:
-                self.untried[next_state] = self.get_possible_actions()
-
-                # Check for victims
-                seq = self.check_for_victim()
-                if seq != VS.NO_VICTIM:
-                    vs = self.read_vital_signals()
-                    self.victims[seq] = ((self.x, self.y), vs)
-                    #print(f"{self.NAME} Victim found at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
-                    #print(f"{self.NAME} Seq: {seq} Vital signals: {vs}")
-            
-                # Calculates the difficulty of the visited cell
-                difficulty = (rtime_bef - rtime_aft)
-                if dx == 0 or dy == 0:
-                    difficulty = difficulty / self.COST_LINE
-                else:
-                    difficulty = difficulty / self.COST_DIAG
-
-                # Update the map with the new cell
-                self.map.add((self.x, self.y), difficulty, seq, self.check_walls_and_lim())
-                #print(f"{self.NAME}:at ({self.x}, {self.y}), diffic: {difficulty:.2f} vict: {seq} rtime: {self.get_rtime()}")
-
+        self.come_back()
         return
 
     def come_back(self):
         """ Procedure to return to the base using A* calculated path """
         
-        if not self.a_star_path:
-            return
-
-        next_pos = self.a_star_path.pop(0)
-        dx = next_pos[0] - self.x
-        dy = next_pos[1] - self.y
-
-        result = self.walk(dx, dy)
-        # Walk resulted in bumping into a wall or end of grid
-        if result == VS.BUMPED:
-            print(f"{self.NAME}: when coming back bumped at ({self.x+dx}, {self.y+dy}) , rtime: {self.get_rtime()}")
-            return
+        if self.returning_to_base and self.a_star_path:
+            next_pos = self.a_star_path.pop(0)
+            dx = next_pos[0] - self.x
+            dy = next_pos[1] - self.y
             
-        if result == VS.EXECUTED:
-            # update the agent's position relative to the origin
-            self.x += dx
-            self.y += dy
-            #print(f"{self.NAME}: coming back at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
+            result = self.walk(dx, dy)
+
+            if result == VS.EXECUTED:
+                self.x += dx
+                self.y += dy
+            return
+
+        if not self.walk_stack.is_empty():
+            dx, dy = self.walk_stack.pop()
+            
+            back_dx, back_dy = -dx, -dy
+            
+            result = self.walk(back_dx, back_dy)
+            if result == VS.EXECUTED:
+                self.x += back_dx
+                self.y += back_dy
+            elif result == VS.BUMPED:
+                print(f"{self.NAME}: Unexpected bump while coming back at ({self.x + back_dx}, {self.y + back_dy})")
 
 
         
@@ -166,11 +169,11 @@ class Explorer(AbstAgent):
 
         # Only calculate A* path cost when still exploring
         if not self.returning_to_base:
-            path_info = self.a_star()
+            path_info = self.a_star((self.x, self.y), (0, 0), self.map.map_data)
             
             if path_info:
                 path, cost = path_info
-                safety_margin = cost * 1.08
+                safety_margin = cost * 1.16
                 
                 if self.get_rtime() <= safety_margin:
                     self.returning_to_base = True
@@ -185,7 +188,6 @@ class Explorer(AbstAgent):
         if self.returning_to_base:
             if (self.x == 0 and self.y == 0):
                 print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the orchestrator rescuer")
-                #input(f"{self.NAME}: type [ENTER] to proceed")
                 self.resc.recv_map_and_victims(self.map, self.victims)
                 return False
             self.come_back()
@@ -194,62 +196,48 @@ class Explorer(AbstAgent):
         self.explore()
         return True
     
-    def a_star(self):
-        """ A* pathfinding to return to base
-        @returns: tuple (path, cost) where:
-                  - path is a list of (x,y) coordinates from current position to base (excluding current pos)
-                  - cost is the total battery cost to traverse the path
-                  Returns None if no path is found
-        """
-        start = (self.x, self.y)
-        goal = (0, 0)
+    def a_star(self, start, goal, map):
+        """ returns the tuple [path, cost]"""
         
-        if start == goal:
-            return ([], 0)
-        
-        counter = 0
-        heap = [(0, counter, start, [], 0)]
-        counter += 1
-        
-        best_g_score = {start: 0}
-        
-        while heap:
-            f_score, _, current, path, g_score = heapq.heappop(heap)
-            
+        open_set = []
+        #Heap: (f_score, g_score, pos, path)
+        heapq.heappush(open_set, (0, 0, start, []))
+
+        visited = set()
+        g_scores = {start: 0}
+
+        while open_set:
+            f_score, g_score, current, path = heapq.heappop(open_set)
+
             if current == goal:
-                return (path, g_score)
-            
-            if current in best_g_score and g_score > best_g_score[current]:
+                return path, g_score
+
+            if current in visited:
                 continue
-            
-            for action_idx in range(8):
+
+            visited.add(current)
+
+            for action_idx in range (8):
                 dx, dy = Explorer.AC_INCR[action_idx]
-                neighbor = (current[0] + dx, current[1] + dy)
-                
-                if not self.map.in_map(neighbor):
-                    continue
-                
-                neighbor_data = self.map.get(neighbor)
-                difficulty = neighbor_data[0]
-                
-                if difficulty == VS.OBST_WALL:
-                    continue
-                
-                if dx == 0 or dy == 0:
-                    move_cost = self.COST_LINE * difficulty
-                else:
-                    move_cost = self.COST_DIAG * difficulty
-                
-                new_g_score = g_score + move_cost
-                
-                if neighbor not in best_g_score or new_g_score < best_g_score[neighbor]:
-                    best_g_score[neighbor] = new_g_score
+                neighbour = (current[0] + dx, current[1] + dy)
+
+                data = map.get(neighbour)
+
+                if not data: continue
+                diff = data[0]
+                if diff == VS.OBST_WALL: continue
+
+                move_cost = self.COST_LINE if (dx == 0 or dy == 0) else self.COST_DIAG
+                g1_score = g_score + move_cost * diff
+
+                if neighbour not in g_scores or g1_score < g_scores[neighbour]:
+                    g_scores[neighbour] = g1_score
                     
-                    h_score = (abs(neighbor[0] - goal[0]) + abs(neighbor[1] - goal[1])) * self.COST_LINE
-                    
-                    new_f_score = new_g_score + h_score
-                    
-                    new_path = path + [neighbor]
-                    heapq.heappush(heap, (new_f_score, counter, neighbor, new_path, new_g_score))
-                    counter += 1
-        return None
+                    h = self.heuristic(neighbour, goal)
+                    f = g1_score + h
+                    new_path = path + [neighbour]
+                    heapq.heappush(open_set, (f, g1_score, neighbour, new_path))
+        return None, float('inf')
+    
+    def heuristic(self, a, b):
+        return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5 * self.obst_min

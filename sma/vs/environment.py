@@ -64,6 +64,8 @@ class Env:
 
                 if obst != VS.OBST_WALL and obst > self.__max_obst:
                     self.__max_obst = obst
+                if obst != VS.OBST_WALL and obst < self.__min_obst:
+                    self.__min_obst = obst
 
                 self.obst[x][y] = obst
                 #  print(self.obst)
@@ -127,6 +129,9 @@ class Env:
         # Stores all the agents have been in the cell
         self.visited = [[[] for y in range(self.dic["GRID_HEIGHT"])]
                         for x in range(self.dic["GRID_WIDTH"])]
+        
+    def get_obst_min(self):
+        return self.__min_obst
 
     def __read_config(self):
         """ Read the size of the grid and window and

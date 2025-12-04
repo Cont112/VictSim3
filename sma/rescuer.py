@@ -47,6 +47,7 @@ class Rescuer(AbstAgent):
         self.unified_map = Map()
         self.unified_victims = {}
         self.cost_matrix = {}
+        self.obst_min = env.get_obst_min()
                 
         # Starts in IDLE state.
         # It changes to ACTIVE when the map arrives
@@ -515,7 +516,7 @@ class Rescuer(AbstAgent):
         #init population
         population = []
         for _ in range(POPULATION_SIZE):
-            new_sequence = random.sample(victims.items(), len(victims))
+            new_sequence = random.sample(sorted(victims.items()), len(victims))
             population.append(new_sequence)
 
         #calc matrix cost 
@@ -603,4 +604,4 @@ class Rescuer(AbstAgent):
         return None, float('inf')
     
     def heuristic(self, a, b):
-        return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5 * self.COST_LINE
+        return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5 * self.obst_min
